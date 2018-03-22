@@ -1,0 +1,154 @@
+################LOADING DATA##############################################################################################################
+library(simpleaffy)
+setwd("/home/shadi/Desktop/new/dasti/prof_human")
+data <- ReadAffy()
+pData(data)
+phenoData(data)
+probeNames(data)
+sampleNames(data)
+annotation(data)
+################Quality Control###########################################################################################################
+data.eset <- call.exprs(data,"mas5")
+
+qc(data) -> data.qc
+plot(data.qc)
+avbg(data.qc)
+sfs(data.qc)
+percent.present(data.qc)
+ratios(data.qc)
+AffyRNAdeg(data) -> RNAdeg
+plotAffyRNAdeg(RNAdeg)
+summaryAffyRNAdeg(RNAdeg)
+
+#Clustering Arrays by Expression Data
+library(genefilter)
+library(latticeExtra)
+library(affyPLM)
+dd <- dist2(log2(exprs(data)))
+diag(dd) <- 0
+dd.row <- as.dendrogram(hclust(as.dist(dd)))
+row.ord <- order.dendrogram(dd.row)
+legend <- list(top = list(fun = dendrogramGrob, args = list(x= dd.row, side = "top")))
+lp <- levelplot(dd[row.ord, row.ord], scales = list(x= list(rot = 90)), xlab = "", ylab = "", legend
+                = legend)
+plot(lp)
+
+dataPLM <-fitPLM(data)
+Mbox(dataPLM, main = "RLE", ylim = c(-0.4,0.4), outline = FALSE, col = "mistyrose", las = 3, whisklty = 0, staplety = 0)
+boxplot(dataPLM, main = "NUSE", ylim = c(0.95, 1.22), outline = FALSE, col = "lightblue", las = 3, whisklty = 0, staplety = 0)
+
+#################low level analysis - Normalization/buiiding expression set######################################################################################
+hist1 <- hist(data)
+
+data.normalized <- normalize(data)
+hist <- hist(data.normalized)
+
+eset = rma(data)
+hist2 <- hist(eset)
+exprs(eset)
+write.exprs(eset, file="rma_result.txt")
+eset = readExpressionSet("rma_result.txt")
+
+expression_value <- exprs(data)
+##############annotating#################################################################################################################
+library(rat2302.db)
+library(annotate)
+
+rat <- rat2302.db
+Probe_ID <- probeNames(data)
+symbols <- select(x = rat,keys = Probe_ID ,columns = "SYMBOL" ,keytype = "PROBEID")
+Final_Result = unique(symbols)
+
+write.table(Final_Result, "symbols.txt", sep="\t", quote=FALSE)
+
+#######count reads per features#############################################################################################################
+#genes reported by RNA-chip
+library(rat2302.db)
+rat <- rat2302.db
+
+
+x <- sampleNames(data)
+Probe_ID <- probeNames(data)
+eset <- rma(data)
+expression_value <- exprs(eset)
+dataFrame <- data.frame(expression_value)
+symbols <- select(x = rat,keys = Probe_ID ,columns = "SYMBOL" ,keytype = "PROBEID")
+Final_Result = unique(symbols)
+
+newCol <- rownames(dataFrame)
+dataFrame$PROBEID <- newCol
+rownames(dataFrame) <- NULL
+
+final_dataFram <- merge(dataFrame,Final_Result,by ="PROBEID")
+names(final_dataFram)[names(final_dataFram)=="GSM1161423_95162.CEL"] <- "sample1_exprs"
+names(final_dataFram)[names(final_dataFram)=="GSM1161494_94575.CEL"] <- "sample2_exprs"
+write.table(final_dataFram, "DataFrame_RNAchip.txt", sep="\t")
+##################################DEG analysis############################################################################################################
+library(limma)
+library(stats)
+library(affy)
+library(simpleaffy)
+
+#Filtering before DE study
+rma <- rma(data)
+exprs(rma)
+#probe sets in this dataset
+length(featureNames(rma))
+dataf <- nsFilter(rma, remove.dupEntrez = FALSE, var.cutof = 0.5)$eset
+
+#Individual t-tests
+a <- rowMeans(exprs(dataf))
+data_tt <- rowttests(dataf, "state")
+names(data_tt)
+
+#Pooled t-tests
+design <- model.matrix(dataf$state)
+dataLim <- lmFit(dataf, design)
+dataeb <- eBayes(dataLim)
+
+plot(data_tt$statistic, -dataeb$t[, 2], xlim = c(-6 , 6), ylim = c(-6 , 6), 
+     xlab = "Classical Linear Model", ylab = "Empirical Bayes", main = "Comarison of t Statics", pch = ".")
+abline(a = 0, b = 1)
+
+#Volcano plot using classical t-statistic
+plot(data_tt$dm, -log10(data_tt$p.value), pch = ".", xlab = "log-ratio", ylab = "-log10 (p)" )
+
+#Volcano plot using moderated empirical Bayesian t-statistic
+plot(data_tt$dm, -log10(dataeb$p.value[,2]), pch = ".", xlab = "log-ratio", ylab = expresso(log[10] ~ p))
+abline(h = 2)
+
+#Using volcano plot to highlight the top 25 genes with the smallest classical linear model p-value
+plot(data_tt$dm, -log10(data_tt$p.value),pch = ".", xlab = "log-ratio", ylab = expression(log[10] ~ p))
+
+o1 <- order(abs(data_tt$dm), decreasing = TRUE)[1:25]
+points(data_tt$dm[o1], -log10(data_tt$p.value)[o1],pch = 18, col = "blue")
+
+#many probe sets with p <= 0.01 are there in the classical linear model t-tests
+sum(data_tt$p.value <= 0.01)
+
+#How many with the moderated empirical Bayesian t-tests?
+sum(dataeb$p.value[, 2] <= 0.01)
+
+
+#####################################fold change#######################################
+
+prof_human_all<-ReadAffy(celfile.path = "prof_human")
+non_human_all<-ReadAffy(celfile.path = "non_human")
+prof_human_all.rma <- rma(prof_human_all)
+non_human_all.rma <- rma(non_human_all)
+prof_human_all.rma_exprs <- exprs(prof_human_all.rma)
+non_human_all.rma_exprs <- exprs(non_human_all.rma)
+
+f1 <- foldchange(non_human_all.rma_exprs[,1],prof_human_all.rma_exprs[,1])
+max1<-names(head(sort(f1),n=20000))
+for (i in 1:length(non_human_all.rma_exprs[1,])) {#24 tas
+  for (j in 1:length(prof_human_all.rma_exprs[1,])) {#21 tas
+    f2 <- foldchange(non_human_all.rma_exprs[,i],prof_human_all.rma_exprs[,j])
+    max2<-names(head(sort(f2),n=20000))
+    max1<-intersect(max1,max2)
+    max1
+  }
+}
+
+
+
