@@ -1,0 +1,97 @@
+library("BSgenome.Rnorvegicus.UCSC.rn6")
+library("Biostrings")
+library(affy)
+library(affyPLM)
+#biocLite("rat2302.db")
+library(rat2302.db)
+library(gcrma)
+library(GenomicFeatures)
+
+#########################################################
+
+setwd("~/Desktop/microarray/")
+data = ReadAffy('GSM1161423_95162.CEL','GSM1161494_94575.CEL')
+class(data)
+
+data.gcrma <- gcrma(data)
+#data1.gcrma <- gcrma(data1)
+expressed = exprs(data)
+exprNormalized = exprs(data.gcrma)
+head(expressed)
+head(exprNormalized)
+
+library(annotate)
+ex<-justRMA('GSM1161423_95162.CEL','GSM1161494_94575.CEL')
+gN <- featureNames(ex)
+sym<-getSYMBOL(gN,"rat2302.db")
+results <- cbind(exprNormalized, sym)
+head(results)
+#########################################################
+seq<- getSeq(Rnorvegicus)
+rnaseq60genes<-read.table("genes60.fpkm_tracking",header = TRUE)
+rnaseq61genes<-read.table("genes61.fpkm_tracking",header = TRUE)
+rnaseq <-cbind(rnaseq60genes$gene_id,rnaseq60genes$FPKM,rnaseq61genes$gene_id,rnaseq61genes$FPKM)
+head(rnaseq)
+#rnaseq
+
+#########################################################
+
+library("TxDb.Rnorvegicus.UCSC.rn5.refGene")
+ratx<-TxDb.Rnorvegicus.UCSC.rn5.refGene
+#rnagene60_rat <- select(rat2302.db,keys=as.character(rnaseq60genes$gene_id),keytype = "PROBEID",columns = c("SYMBOL"))
+#df<-data.frame(rnaseq60genes)
+t60<-within(rnaseq60genes, locus<-data.frame(do.call('rbind', strsplit(as.character(locus), ':', fixed=TRUE))))
+t60b<-within(t60$locus, X2<-data.frame(do.call('rbind', strsplit(as.character(X2), '-', fixed=TRUE))))
+t60r = GRanges(seqnames = as.character(t60$locus$X1),strand = "*",ranges = IRanges(start =as.integer(t60b$X2$X1) ,end=as.integer(t60b$X2$X1)))
+
+t61<-within(rnaseq61genes, locus<-data.frame(do.call('rbind', strsplit(as.character(locus), ':', fixed=TRUE))))
+t61b<-within(t61$locus, X2<-data.frame(do.call('rbind', strsplit(as.character(X2), '-', fixed=TRUE))))
+t61r = GRanges(seqnames = as.character(t61$locus$X1),strand = "*",ranges = IRanges(start =as.integer(t61b$X2$X1) ,end=as.integer(t61b$X2$X1)))
+
+overlap60<-subsetByOverlaps(genes(ratx),t60r)
+overlap61<-subsetByOverlaps(genes(ratx),t61r)
+
+genes_rnaseq <- select(rat2302.db,keys=c("286986","679149"),keytype = "ENTREZID",columns = c("SYMBOL"))
+genes_rnaseq
+
+
+
+res<-data.frame(results)
+res<-na.omit(res)
+res[res$sym=="Vom2r75",]
+res[res$sym=="LOC679149",]
+
+#########################################################
+
+library(simpleaffy)
+celfiles <- read.affy(covdesc="phenodata.txt")
+celfiles
+celfiles.gcrma <- gcrma(celfiles)
+
+
+celfiles.qc <- fitPLM(celfiles)
+eset <- exprs(celfiles.gcrma)
+distance <- dist(t(eset),method="maximum")
+clusters <- hclust(distance)
+#celfiles.filtered <- nsFilter(celfiles.gcrma, require.entrez=FALSE, remove.dupEntrez=FALSE)
+
+samples <- celfiles.gcrma$Target
+samples
+samples <- as.factor(samples)
+samples
+
+design <- model.matrix(~0 + samples)
+design
+
+library(limma)
+fit <- lmFit(exprs(celfiles.gcrma), design)
+contrast.matrix <- makeContrasts(choroid = sampleslab1 - sampleslab2, levels=design)
+contrast.matrix
+
+fits <- contrasts.fit(fit, contrast.matrix)
+ebFit <- eBayes(fits)
+#topTable(ebFit, number=10, coef=1)
+#probeset.list <- topTable(ebFit, coef=1, number=10000, lfc=4)
+#gene.symbols <- getSYMBOL(probeset.list$ID, "rat2302.db")
+#resultsDE <- cbind(probeset.list, gene.symbols)
+#head(resultsDE)
